@@ -110,12 +110,21 @@ class MyAI( AI ):
         return frontier
     
     def splitFrontier(self, FC, FU) -> "splittedFC, splittedFU":
+        # returns two splitted frontiers
+        # A covered frontier is splitted once its length goes over 15 or has no overlapping tiles with the others
+        # A covered frontier will be splitted by looping through the following steps:
+        # 1. A new sub-frontier a initiated by finding a head and append it to a empty list
+        # 2. We look for its neighbors that are also in the covered frontier and add them to the sub-frontier
+        # 3. If no more connected tiles can be found or the length exceed 15, we append the sub-frontier to splittedFC and initiate a new sub-frontier
+        #    the corresponding uncovered frontier is formed by joining all the neighbors for tiles in our covered sub-frontier, and is append to the splittedFU
+        # 4. If no more element in FC, we stop the loop and return splittedFC and splitted FU
+        
         def getUncoveredNeighborDict(FC, FU) -> "{tuple: set(tuple)}":
             # return a dictionary that stores all its neighbors in FU for a tile in FC
             # key: tile in FC
             # value: the set of all the valid neighbors of the key that are in FU
             unbd = dict()
-            for t in FuC:
+            for t in FC:
                 unbd[t] = self.getValidNeighbors(t[0], t[1]).intersection(set(FU))
             return unbd
 
@@ -132,8 +141,57 @@ class MyAI( AI ):
                 cnbd[tile] = cnb
             return cnbd
 
+        def getHead(coveredNeighborDict) -> tuple:
+            # return the head of a frontier
+            # the head is the tile with the fewest neighbors in the frontier
+            maxLen = 8
+            head = (-1, -1)
+            for tile, cnb in coveredNeighborDict.items():
+                if len(cnb) < maxLen:
+                    head = tile
+            return head
 
+        def getSplittedFU(frontier: "list[tuple]") -> "list[tuple]":
+            # this function get the corresponding covered sub-frontier from a given uncovered sub-frontier
+            # note that there might be duplicated tiles for different covered sub-frontier and this wouldn't be problematic 
+            # because the uncovered frontier is only used to check for condition satisfaction
+            out = set()
+            for f in frontier:
+                out.add(unbd[f])
+            return list(out)
 
+        def addFriends(someFriends, frontier):
+            for friend in someFriends:
+                if friend not in frontier:
+                    FC.remove(friend)
+                    frontier.append(friend)
+
+        splittedFC = []
+        splittedFU = []
+        unbd = getUncoveredNeighborDict(FC, FU)
+        cnbd = getCoveredNeighborDict(unbd)
+        head = getHead(cnbd)
+        frontierStack = [head]
+        idx = 0
+        while len(FC) > 0:
+            if len(frontierStack) >= 15:
+                splittedFC.append(frontierStack)
+                splittedFU.append(getSplittedFU(frontierStack))
+                head = getHead(cnbd)
+                frontierStack = [head]
+                idx = 0
+            friends = cnbd[head]
+            closestFriends = {(head[0], head[1] + 1), (head[0], head[1] - 1), (head[0] + 1, head[1]), (head[0] - 1, head[1]) }.intersection(friends)
+            secondClosestFriends = {(head[0] + 1, head[1] + 1), (head[0] - 1, head[1] - 1), (head[0] + 1, head[1] - 1), (head[0] - 1, head[1] + 1) }.intersection(friends)
+            leastClosestFriends = friends - closestFriends - secondClosestFriends
+            addFriends(closestFriends, frontierStack)
+            addFriends(secondClosestFriends, frontierStack)
+            addFriends(leastClosestFriends, frontierStack)
+
+            idx += 1
+            head = frontierStack[idx]
+        return splittedFC, splittedFU
+            
 
     # def splitFrontierC(self, FC, FU) -> "list[[tuple]]":
     #     allFrontiers = []
@@ -358,9 +416,7 @@ class MyAI( AI ):
         def analyzeBoard():
             frontierU = self.getFrontierU()    
             frontierC = self.getFrontierC(frontierU)
-            frontierC = self.splitFrontierC(frontierC, frontierU)
-            frontierU = self.splitFrontierU(frontierC, frontierU)
-            self.furtherSplit(frontierC, frontierU)
+            frontierC, frontierU = self.splitFrontier(frontierC, frontierU)
             #print("frontier size:", [len(f) for f in frontierC])
             report = []
             for i in range(len(frontierC)):

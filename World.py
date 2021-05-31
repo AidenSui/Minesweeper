@@ -93,16 +93,16 @@ class World():
 			if self.__movesMade > self.__movesLimit:
 				break;
 
-			try: 
-				action = self.__ai.getAction(self.__perceptNumber)
-				if self.__checkValidAction(action):
-					if self.__doMove(action):
-						break
-			except ValueError:
-				print("Error: Invalid action!")
-			except IndexError:
-				print()
-				print("Error: Move is out of bounds!")
+			#try: 
+			action = self.__ai.getAction(self.__perceptNumber)
+			if self.__checkValidAction(action):
+				if self.__doMove(action):
+					break
+			#except ValueError:
+			#	print("Error: Invalid action!")
+			#except IndexError:
+			#	print()
+			#	print("Error: Move is out of bounds!")
 
 			if self.__debug and type(self.__ai) != ManualAI:
 				input("Press ENTER to continue...")
