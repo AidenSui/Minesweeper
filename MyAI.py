@@ -14,8 +14,6 @@
 
 from AI import AI
 from Action import Action
-from collections import defaultdict
-from itertools import combinations
 import time
 
 
@@ -223,7 +221,6 @@ class MyAI( AI ):
     def analyzeFrontier(self, FU, FC) -> "list[float]":
         # This function analyzes a given pair of "covered" and "uncovered" frontier and the board situation to give a list of floats for
         # each coordinate in the "uncovered" frontier. Each float represents the probability that there is a mine at the coordinate
-        # e.g. FU = [(2, 2), (2, 3), (3, 2), (4, 2)], res = [0.0, 1.0, 0.6, 0.25]
         #print("FC", FC)
         #print("FU", FU)
         def isValidComb(comb, fc) -> bool:
@@ -244,18 +241,8 @@ class MyAI( AI ):
                 #print("FC", FC, "comb", comb)
                 #print("neighbors:", relationDict[k])
                 for ct in relationDict[k]:
-                    #print("ct", ct)
-                    
-                    i = fc.index(ct)
-                    # if len(comb) >= 9 and comb[8] == "1" and comb[9] == "1":
-                    #     print("FC:", FC)
-                    #     print("i", i)
-                    #     print("comb:", comb)
-                    #     print("k", k)
-                    #     print("ct", ct, "   effectivelabel:", effectiveLabel)
-                    #     print()
-                    #print("i:", i)
-                    
+                    #print("ct", ct)   
+                    i = fc.index(ct)     
                     if comb[i] == "1":
                         effectiveLabel -= 1
                 if effectiveLabel != 0:
@@ -271,10 +258,8 @@ class MyAI( AI ):
                 combination = bin(i).replace("0b", "")
                 combination = (n - len(combination)) * "0" + combination
                 #print("combination", combination, "is", isValidComb(combination), "valid")
-
                 if isValidComb(combination, fc):
                     out.append(combination)
-
             #print("all cases:", out)
             return out
         
@@ -452,7 +437,7 @@ class MyAI( AI ):
             #print()
             if self.__numOfMinesLeft == 0:
                 timeUsed = time.time() - self.__time
-                print(timeUsed, "seconds used.")
+                print("%.4f seconds used" % timeUsed)
                 return Action(AI.Action.LEAVE)
             try:
                 analyzeBoard()
@@ -466,7 +451,7 @@ class MyAI( AI ):
                             self.__toUncover.append((i, j))
                 if len(self.__toUncover) == 0:
                     timeUsed = time.time() - self.__time
-                    print( timeUsed, "seconds used.")
+                    print("%.4f seconds used" % timeUsed)
                     return Action(AI.Action.LEAVE)
         nextTile = self.__toUncover.pop(0)
         #self.printBoardInfo()
