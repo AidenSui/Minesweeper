@@ -44,7 +44,6 @@ class MyAI( AI ):
         self.__Y = startX
         self.__time = time.time()
 
-    # helper functions
     def getValidNeighbors(self, x, y) -> "list[tuple]":
         def isValid(x, y) -> bool:
             if x <= self.__rowDimension - 1 and x >= 0 and y <= self.__colDimension - 1 and y >= 0:
@@ -85,7 +84,6 @@ class MyAI( AI ):
             self.__board[x][y][1] = label - mineCount # decrement the effective label by the count of flagged mines in the neighborhood
         else:
             self.__numOfMinesLeft -= 1
-
 
     def getFrontierU(self) -> "list[tuple]":
         # This function gives a list of all the current "Uncovered" frontiers based on the current board condition
@@ -237,6 +235,8 @@ class MyAI( AI ):
             for k in relationDict.keys():
             # k -> a uncovered tile in the uncovered frontier
             # v -> a set containing all the covered tiles in the covered frontier that are next to k
+                if len([nb for nb in self.getValidNeighbors(k[0], k[1]) if self.__board[nb[0]][nb[1]][0] == "*"]) != len(relationDict[k]):
+                    continue
                 effectiveLabel = self.__board[k[0]][k[1]][1]
                 
                 #print("effectiveLabel for", k, "is", effectiveLabel)
@@ -263,24 +263,9 @@ class MyAI( AI ):
             
             return True       
 
-        def generateAllCases(fc, fu) -> "list[str]":
-            print("fc", fc)
+        def generateAllCases(fc) -> "list[str]":
+            #print("fc", fc)
             out = []
-
-            
-                # if n >= remainingMines:
-                #     idxOfOnes = combinations(range(n), remainingMines)
-                #     for idxs in idxOfOnes:
-                #         combination = ""
-                #         for i in range(n):
-                #             if i in idxs:
-                #                 combination += "1"
-                #             else:
-                #                 combination += "0"
-                #         #print("combination", combination, "is", isValidComb(combination), "valid")
-                #         if isValidComb(combination, relationDict):
-                #             out.append(combination)
-                # else:
             n = len(fc)
             for i in range(2**n):
                 combination = bin(i).replace("0b", "")
@@ -292,11 +277,54 @@ class MyAI( AI ):
 
             #print("all cases:", out)
             return out
-            
- 
-         
+        
+        def connectFrontier(frontiers):
+            out = set()
+            for f in frontiers:
+                out = out.union(set(f))
+            return out
 
-        def generateReport(inputCombs: "list[str]", fc) -> "list[float]":
+        def getValidCombsAfterConnection(allValidCombs, FC):
+            # allValidCombs: [[comb1, comb2, comb3], [comb4, comb5], ...]
+            # FC: [[ct1, ct2, ct3, ct4, ct5], [ct6, ct7, ...], ...]
+            def connect(connectedCombs, combsToConnect, connectedFC, frontierToConnect):
+                uncoveredBoarder = set()
+                # coveredBoarder = set()
+                outputCombs = []
+                outputFrontier = connectedFC + frontierToConnect
+                for k, v in boarderDict.items():
+                    if v.intersection(set(frontierToConnect)) != set() or v.intersection(set(connectedFC)) != set():
+                        uncoveredBoarder.add(k)
+                        # coveredBoarder = coveredBoarder.union(v)
+                for comb1 in connectedCombs:
+                    for comb2 in combsToConnect:
+                        for boarderU in uncoveredBoarder:
+                            effectiveLabel = self.__board[boarderU[0]][boarderU[1]][1]
+                            countOfMines = 0
+                            for boarderC in boarderDict[boarderU]:
+                                if boarderC in connectedFC:
+                                    i = connectedFC.index(boarderC)
+                                    if connectedCombs[i] == "1":
+                                        countOfMines += 1
+                                else:
+                                    i = frontierToConnect.index(boarderC)
+                                    if combsToConnect[i] == "1":
+                                        countOfMines += 1
+                            if effectiveLabel != countOfMines:
+                                break
+                        outputCombs.append(comb1 + comb2)
+                return outputCombs, outputFrontier
+
+            allConnectedCombs = allValidCombs.pop(0)
+            allConnectedFC = FC.pop(0)
+            while len(allValidCombs) != 0:
+                nextComb = allValidCombs.pop(0)
+                nextFrontier = FC.pop(0)
+                allConnectedCombs, allConnectedFC = connect(allConnectedCombs, nextComb, allConnectedFC, nextFrontier)
+
+            return allConnectedCombs, allConnectedFC
+
+        def generateReport(inputCombs: "list[str]", fc: "list[tuple]") -> "list[float]":
             rep = [0 for _ in range(len(fc))]
             for comb in inputCombs:
                 for i in range(len(comb)):
@@ -304,13 +332,12 @@ class MyAI( AI ):
                         rep[i] += 1
             for j in range(len(rep)):
                 rep[j] /= len(inputCombs)
-            return rep
-
-        
+            return rep        
 
         easyReport = 0
         zeros = []
         ones = []
+        
         for fu in FU:
             for tile in fu:
                 if self.__board[tile[0]][tile[1]][1] == 0:
@@ -333,27 +360,33 @@ class MyAI( AI ):
                         self.__toUncover.append(tile)
                     elif tile in ones:
                         self.updateBoard(tile[0], tile[1], "M")
-            return "break"
-        else:
-            
+            return "break", []
+        else:  
             unknownCount = 0
             for row in self.__board:
                 for tile in row:
                     if tile[0] == "*":
                         unknownCount += 1
-
-
             finalReport = []
+            allValidCombs = []
+            boarderDict = dict()
+            connectedFU = connectFrontier(FU)
             for i in range(len(FU)):
-                relationDict = {}
+                relationDict = dict()
                 for tile in FU[i]:
                     relationDict[tile] = self.getValidNeighbors(tile[0], tile[1]).intersection(set(FC[i]))
-
+                for k in relationDict.keys():
+                    if k not in boarderDict.keys() and len([nb for nb in self.getValidNeighbors(k[0], k[1]) if self.__board[nb[0]][nb[1]][0] == "*"]) != len(relationDict[k]):
+                        boarderDict[k] = {nb for nb in self.getValidNeighbors(k[0], k[1]) if self.__board[nb[0]][nb[1]][0] == "*"}.intersection(connectedFU)
                 #print("relation:", relationDict)
-                allCombs = generateAllCases(FC[i], FU[i])
-                print("validCombs:", allCombs)
-                finalReport.append(generateReport(allCombs, FC[i])) 
-            return finalReport
+                validCombs = generateAllCases(FC[i])
+                #print("validCombs:", validCombs)
+                allValidCombs.append(validCombs)
+
+            allValidCombsAfterConnection, connectedFC = getValidCombsAfterConnection(allValidCombs, FC)
+            #print("all valid combinations:", allValidCombsAfterConnection)
+            finalReport = generateReport(allValidCombsAfterConnection, connectedFC)
+            return finalReport, connectedFC
 
     def handleReport(self, report, FC) -> None:
         # This function reads the report and does three jobs:
@@ -367,24 +400,23 @@ class MyAI( AI ):
         minProb = 1
         minProbIdx = None
         for i in range(len(report)):
-            for j in range(len(report[i])):
-                prob = report[i][j]
-                if prob == 1.0:
-                    mineIdx.append((i, j))
-                elif prob == 0.0:
-                    safeIdx.append((i, j))
-                else:
-                    if prob < minProb:
-                        minProb = prob
-                        minProbIdx = (i, j)
+            prob = report[i]
+            if prob == 1.0:
+                mineIdx.append(i)
+            elif prob == 0.0:
+                safeIdx.append(i)
+            else:
+                if prob < minProb:
+                    minProb = prob
+                    minProbIdx = i
         if len(mineIdx) == 0 and len(safeIdx) == 0:
             safeIdx.append(minProbIdx)
         #print("mineIdx", mineIdx)
         #print("safeIdx", safeIdx)
         for idx in mineIdx:
-            self.updateBoard(FC[idx[0]][idx[1]][0], FC[idx[0]][idx[1]][1], "M")
+            self.updateBoard(FC[idx][0], FC[idx][1], "M")
         for idx in safeIdx:
-            self.__toUncover.append(FC[idx[0]][idx[1]])
+            self.__toUncover.append(FC[idx])
 
     def printBoardInfo(self) -> None:
         print(self.__numOfMinesLeft, "mines left")
@@ -407,22 +439,25 @@ class MyAI( AI ):
             frontierC = self.getFrontierC(frontierU)
             #print("frontierU:", frontierU)            
             splittedfrontierC, splittedfrontierU = self.splitFrontier(frontierC, frontierU)
-            print("splittedfrontierC:", splittedfrontierC)
-            report = self.analyzeFrontier(splittedfrontierU, splittedfrontierC)
+            #print("splittedfrontierC:", splittedfrontierC)
+            report, connectedFC = self.analyzeFrontier(splittedfrontierU, splittedfrontierC)
             if report == "break":
                 return
-            print("report:", report)
-            self.handleReport(report, splittedfrontierC)
+            #print("report:", report)
+            self.handleReport(report, connectedFC)
 
         self.updateBoard(self.__X, self.__Y, number) # After getting the face number back, we update the board (knowledge base) with this new knowledge
         while len(self.__toUncover) == 0:
-            self.printBoardInfo()
-            print()
+            #self.printBoardInfo()
+            #print()
             if self.__numOfMinesLeft == 0:
                 timeUsed = time.time() - self.__time
                 print(timeUsed, "seconds used.")
                 return Action(AI.Action.LEAVE)
-            analyzeBoard()
+            try:
+                analyzeBoard()
+            except:
+                return Action(AI.Action.LEAVE)
             #print("uncover", self.__toUncover)
             if self.__numOfMinesLeft == 0:
                 for i in range(self.__rowDimension):
