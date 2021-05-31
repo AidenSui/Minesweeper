@@ -14,6 +14,7 @@
 
 from AI import AI
 from Action import Action
+from collections import defaultdict
 from itertools import combinations
 import time
 
@@ -39,8 +40,8 @@ class MyAI( AI ):
                     self.__board[i][j] = ["*", -1, 8] # A core tile has 8 neighbors
         self.__toUncover = [] # This variable stores all the coordinates we choose to uncover
         self.__numOfMinesLeft = totalMines # This variable keeps track of how many mines are left, which is equal to totalMines initially
-        self.__X = startX  # These two variables keeps track of the coordinate of current tile we choose to uncover 
-        self.__Y = startY
+        self.__X = startY  # These two variables keeps track of the coordinate of current tile we choose to uncover 
+        self.__Y = startX
         self.__time = time.time()
 
     # helper functions
@@ -108,90 +109,195 @@ class MyAI( AI ):
                     frontier.append(coord)
         return frontier
     
-    def splitFrontierC(self, FC, FU) -> "list[[tuple]]":
-        allFrontiers = []
-        allNeighbors = []
-        #print("FC:", FC)
-        for f in FC:
-            #print("f:", f)
-            newNeighbors = {nb for nb in self.getValidNeighbors(f[0], f[1]) if type(self.__board[nb[0]][nb[1]][0]) == int}
-            newFrontiers = {f}
-            for i in range(len(allFrontiers)):
-                #print("The intersection between tile", allFrontiers[i], "and newFrontiers", newFrontiers, "is:", allNeighbors[i].intersection(newNeighbors))
-                if allNeighbors[i].intersection(newNeighbors) != set():
-                    newFrontiers = newFrontiers.union(allFrontiers[i])
-                    allFrontiers[i] = set()
-                    newNeighbors = newNeighbors.union(allNeighbors[i])
-                    allNeighbors[i] = set()
-            while set() in allFrontiers:
-                allFrontiers.remove(set())
-                allNeighbors.remove(set())
-            #print("new:", newFrontiers)
-            allFrontiers.append(newFrontiers)
-            allNeighbors.append(newNeighbors)
-        #print(allFrontiers)
-        for i in range(len(allFrontiers)):
-            allFrontiers[i] = list(allFrontiers[i])
+    def splitFrontier(self, FC, FU) -> "splittedFC, splittedFU":
+        # returns two splitted frontiers
+        # A covered frontier is splitted once its length goes over 15 or has no overlapping tiles with the others
+        # A covered frontier will be splitted by looping through the following steps:
+        # 1. A new sub-frontier a initiated by finding a head and append it to a empty list
+        # 2. We look for its neighbors that are also in the covered frontier and add them to the sub-frontier
+        # 3. If no more connected tiles can be found or the length exceed 15, we append the sub-frontier to splittedFC and initiate a new sub-frontier
+        #    the corresponding uncovered frontier is formed by joining all the neighbors for tiles in our covered sub-frontier, and is append to the splittedFU
+        # 4. If no more element in FC, we stop the loop and return splittedFC and splitted FU
         
-        return allFrontiers                
+        def getUncoveredNeighborDict(FC, FU) -> "{tuple: set(tuple)}":
+            # return a dictionary that stores all its neighbors in FU for a tile in FC
+            # key: tile in FC
+            # value: the set of all the valid neighbors of the key that are in FU
+            unbd = dict()
+            for t in FC:
+                unbd[t] = self.getValidNeighbors(t[0], t[1]).intersection(set(FU))
+            return unbd
 
-    def splitFrontierU(self, FC, FU) -> "list[[tuple]]":
-        out = [[] for i in range(len(FC))]
-        for f in FU:
-            for i in range(len(FC)):
-                if self.getValidNeighbors(f[0], f[1]).intersection(set(FC[i])) != set():
-                    out[i].append(f)
-        return out
+        def getCoveredNeighborDict(uncoveredNeighborDict) -> "{tuple: set(tuple)}":
+            # return a dictionary that stores all its neighbors in FC that have mutual neighbors in FU for a tile in FC
+            # key: tile in FC
+            # value: the set of all the neighbors of the key that are in FC and have mutual neighbors with the key tile
+            cnbd = dict()
+            for tile, unb in uncoveredNeighborDict.items():
+                cnb = set()
+                for k, v in uncoveredNeighborDict.items():
+                    if tile != k and unb.intersection(v) != set():
+                        cnb.add(k)
+                cnbd[tile] = cnb
+            return cnbd
+
+        def getHead(coveredNeighborDict) -> tuple:
+            # return the head of a frontier
+            # the head is the tile with the fewest neighbors in the frontier
+            maxLen = 8
+            head = (-1, -1)
+            for tile, cnb in coveredNeighborDict.items():
+                if len(cnb) < maxLen:
+                    head = tile
+            return head
+
+        def getSplittedFU(frontier: "list[tuple]") -> "list[tuple]":
+            # this function get the corresponding covered sub-frontier from a given uncovered sub-frontier
+            # note that there might be duplicated tiles for different covered sub-frontier and this wouldn't be problematic 
+            # because the uncovered frontier is only used to check for condition satisfaction
+            out = set()
+            for f in frontier:
+                out = out.union(unbd[f])
+            return list(out)
+
+        def addFriends(someFriends, frontier):
+            for friend in someFriends:
+                if friend not in frontier:
+                    #print("removing friend:", friend)
+                    FC.remove(friend)
+                    frontier.append(friend)
+                    for tile in cnbd[friend]:
+                        #print("removing", friend, "from dict[" + str(tile) + "]" )
+                        cnbd[tile].discard(friend)
+            #print(cnbd)
+
+        splittedFC = []
+        splittedFU = []
+        unbd = getUncoveredNeighborDict(FC, FU)
+        #print("unbd:", unbd)
+        cnbd = getCoveredNeighborDict(unbd)
+        #print("cnbd:", cnbd)
+        head = getHead(cnbd)
+        frontierStack = [head]
+        FC.remove(head)
+        idx = 0
+        while True:
+            #print("head:", head)
+            #print("idx:", idx)
+            friends = cnbd[head]
+            closestFriends = {(head[0], head[1] + 1), (head[0], head[1] - 1), (head[0] + 1, head[1]), (head[0] - 1, head[1]) }.intersection(friends)
+            #print("closestFriends:",closestFriends)
+            secondClosestFriends = {(head[0] + 1, head[1] + 1), (head[0] - 1, head[1] - 1), (head[0] + 1, head[1] - 1), (head[0] - 1, head[1] + 1) }.intersection(friends)
+            #print("secondClosestFriends:",secondClosestFriends)
+            leastClosestFriends = friends - closestFriends - secondClosestFriends
+            #print("leastClosestFriends:",leastClosestFriends)
+            addFriends(closestFriends, frontierStack)
+            addFriends(secondClosestFriends, frontierStack)
+            addFriends(leastClosestFriends, frontierStack)
+            #print("frontierStack:", frontierStack)
+            #print("FC:", FC)
+            if len(FC) == 0:
+                splittedFC.append(frontierStack)
+                splittedFU.append(getSplittedFU(frontierStack))
+                break
+            if len(frontierStack) >= 15 or idx == len(frontierStack) - 1:
+                #print("splitting the frontier ...")
+                splittedFC.append(frontierStack)
+                splittedFU.append(getSplittedFU(frontierStack))
+                for tile in frontierStack:
+                    del unbd[tile]
+                    del cnbd[tile]
+                head = getHead(cnbd)
+                #print("new head:", head)
+                frontierStack = [head]
+                FC.remove(head)
+                idx = 0
+                continue
+            idx += 1
+            head = frontierStack[idx]
+        
+        #print("Splitted froontierC:", splittedFC)
+        #print("Splitted froontierU:", splittedFU)
+        return splittedFC, splittedFU
+               
 
 
     def analyzeFrontier(self, FU, FC) -> "list[float]":
         # This function analyzes a given pair of "covered" and "uncovered" frontier and the board situation to give a list of floats for
         # each coordinate in the "uncovered" frontier. Each float represents the probability that there is a mine at the coordinate
         # e.g. FU = [(2, 2), (2, 3), (3, 2), (4, 2)], res = [0.0, 1.0, 0.6, 0.25]
-        def generateAllCases(n) -> "list[str]":
-            if n > 20:
-                print("large n:", n)
-            remainingMines = self.__numOfMinesLeft
-            out = []
-            while remainingMines >= 1:
-                idxOfOnes = combinations(range(n), remainingMines)
-                for idxs in idxOfOnes:
-                    combination = ""
-                    for i in range(n):
-                        if i in idxs:
-                            combination += "1"
-                        else:
-                            combination += "0"
-                    out.append(combination)
-                remainingMines -= 1
-                #print("all cases:", out)
-            return out
-            
-        relationDict = {}
-        for tile in FU:
-            inter = self.getValidNeighbors(tile[0], tile[1]).intersection(set(FC))
-            if inter != set():
-                relationDict[tile] = set(inter)
-        #print("relation:", relationDict)
-        def isValidComb(comb: str) -> bool:
-            for k, v in relationDict.items():
+        #print("FC", FC)
+        #print("FU", FU)
+        def isValidComb(comb, fc) -> bool:
+            #print(relationDict)
+            #print("checking", comb)
+            if len(fc) == unknownCount:
+                if comb.count("1") != self.__numOfMinesLeft:
+                    return False
+            for k in relationDict.keys():
             # k -> a uncovered tile in the uncovered frontier
             # v -> a set containing all the covered tiles in the covered frontier that are next to k
                 effectiveLabel = self.__board[k[0]][k[1]][1]
+                
+                #print("effectiveLabel for", k, "is", effectiveLabel)
                 #print("comb:", comb, "k:", k, "v", v, "effectiveLabel:", effectiveLabel)
                 #print("FC", FC, "comb", comb)
-                for ct in v:
-                    i = FC.index(ct)
+                #print("neighbors:", relationDict[k])
+                for ct in relationDict[k]:
+                    #print("ct", ct)
+                    
+                    i = fc.index(ct)
+                    # if len(comb) >= 9 and comb[8] == "1" and comb[9] == "1":
+                    #     print("FC:", FC)
+                    #     print("i", i)
+                    #     print("comb:", comb)
+                    #     print("k", k)
+                    #     print("ct", ct, "   effectivelabel:", effectiveLabel)
+                    #     print()
+                    #print("i:", i)
+                    
                     if comb[i] == "1":
                         effectiveLabel -= 1
-                        if effectiveLabel < 0:
-                            return False
                 if effectiveLabel != 0:
                     return False
-            return True        
+            
+            return True       
 
-        def generateReport(inputCombs: "list[str]") -> "list[float]":
-            rep = [0 for _ in range(len(FC))]
+        def generateAllCases(fc, fu) -> "list[str]":
+            print("fc", fc)
+            out = []
+
+            
+                # if n >= remainingMines:
+                #     idxOfOnes = combinations(range(n), remainingMines)
+                #     for idxs in idxOfOnes:
+                #         combination = ""
+                #         for i in range(n):
+                #             if i in idxs:
+                #                 combination += "1"
+                #             else:
+                #                 combination += "0"
+                #         #print("combination", combination, "is", isValidComb(combination), "valid")
+                #         if isValidComb(combination, relationDict):
+                #             out.append(combination)
+                # else:
+            n = len(fc)
+            for i in range(2**n):
+                combination = bin(i).replace("0b", "")
+                combination = (n - len(combination)) * "0" + combination
+                #print("combination", combination, "is", isValidComb(combination), "valid")
+
+                if isValidComb(combination, fc):
+                    out.append(combination)
+
+            #print("all cases:", out)
+            return out
+            
+ 
+         
+
+        def generateReport(inputCombs: "list[str]", fc) -> "list[float]":
+            rep = [0 for _ in range(len(fc))]
             for comb in inputCombs:
                 for i in range(len(comb)):
                     if comb[i] == "1":
@@ -200,33 +306,53 @@ class MyAI( AI ):
                 rep[j] /= len(inputCombs)
             return rep
 
+        
+
         easyReport = 0
         zeros = []
         ones = []
-        for tile in FU:
-            if self.__board[tile[0]][tile[1]][1] == 0:
-                easyReport = 1
-                for nb in self.getValidNeighbors(tile[0], tile[1]):
-                    if nb not in zeros and self.__board[nb[0]][nb[1]][0] != "M":
-                        zeros.append(nb)
-            elif self.__board[tile[0]][tile[1]][1] == self.__board[tile[0]][tile[1]][2]:
-                easyReport = 1
-                for nb in self.getValidNeighbors(tile[0], tile[1]):
-                    if nb not in ones and self.__board[nb[0]][nb[1]][0] != "M":
-                        ones.append(nb)
+        for fu in FU:
+            for tile in fu:
+                if self.__board[tile[0]][tile[1]][1] == 0:
+                    easyReport = 1
+                    for nb in self.getValidNeighbors(tile[0], tile[1]):
+                        if nb not in zeros and self.__board[nb[0]][nb[1]][0] != "M":
+                            zeros.append(nb)
+                elif self.__board[tile[0]][tile[1]][1] == self.__board[tile[0]][tile[1]][2]:
+                    easyReport = 1
+                    for nb in self.getValidNeighbors(tile[0], tile[1]):
+                        if nb not in ones and self.__board[nb[0]][nb[1]][0] != "M":
+                            ones.append(nb)
         #print("easyReport:", easyReport)
+        #print("zeros", zeros)
+        #print("ones", ones)
         if easyReport == 1:
-            for tile in FC:
-                if tile in zeros:
-                    self.__toUncover.append(tile)
-                elif tile in ones:
-                    self.updateBoard(tile[0], tile[1], "M")
-            return []
+            for fc in FC:
+                for tile in fc:
+                    if tile in zeros:
+                        self.__toUncover.append(tile)
+                    elif tile in ones:
+                        self.updateBoard(tile[0], tile[1], "M")
+            return "break"
         else:
-            allCombs = generateAllCases(len(FC))
-            validCombs = [comb for comb in allCombs if isValidComb(comb)]
-            #print("validCombs:", validCombs)
-            finalReport = generateReport(validCombs)
+            
+            unknownCount = 0
+            for row in self.__board:
+                for tile in row:
+                    if tile[0] == "*":
+                        unknownCount += 1
+
+
+            finalReport = []
+            for i in range(len(FU)):
+                relationDict = {}
+                for tile in FU[i]:
+                    relationDict[tile] = self.getValidNeighbors(tile[0], tile[1]).intersection(set(FC[i]))
+
+                #print("relation:", relationDict)
+                allCombs = generateAllCases(FC[i], FU[i])
+                print("validCombs:", allCombs)
+                finalReport.append(generateReport(allCombs, FC[i])) 
             return finalReport
 
     def handleReport(self, report, FC) -> None:
@@ -253,7 +379,8 @@ class MyAI( AI ):
                         minProbIdx = (i, j)
         if len(mineIdx) == 0 and len(safeIdx) == 0:
             safeIdx.append(minProbIdx)
-        
+        #print("mineIdx", mineIdx)
+        #print("safeIdx", safeIdx)
         for idx in mineIdx:
             self.updateBoard(FC[idx[0]][idx[1]][0], FC[idx[0]][idx[1]][1], "M")
         for idx in safeIdx:
@@ -276,31 +403,27 @@ class MyAI( AI ):
     def getAction(self, number: int) -> "Action Object":
         #print("stack:", self.__toUncover)
         def analyzeBoard():
-            #print("111")
-            frontierU = self.getFrontierU()
-            #print("111")
+            frontierU = self.getFrontierU()    
             frontierC = self.getFrontierC(frontierU)
-            #print("111")
-            frontierC = self.splitFrontierC(frontierC, frontierU)
-            #print("111")
-            frontierU = self.splitFrontierU(frontierC, frontierU)
-            #print("frontierU:", frontierU)
-            #print("frontierC:", frontierC)
-            report = [self.analyzeFrontier(frontierU[i], frontierC[i]) for i in range(len(frontierC))]
-            #print("report:", report)
-            if [] in report:
+            #print("frontierU:", frontierU)            
+            splittedfrontierC, splittedfrontierU = self.splitFrontier(frontierC, frontierU)
+            print("splittedfrontierC:", splittedfrontierC)
+            report = self.analyzeFrontier(splittedfrontierU, splittedfrontierC)
+            if report == "break":
                 return
-            self.handleReport(report, frontierC)
+            print("report:", report)
+            self.handleReport(report, splittedfrontierC)
 
         self.updateBoard(self.__X, self.__Y, number) # After getting the face number back, we update the board (knowledge base) with this new knowledge
         while len(self.__toUncover) == 0:
             self.printBoardInfo()
-            #print()
+            print()
             if self.__numOfMinesLeft == 0:
                 timeUsed = time.time() - self.__time
-                print("Result 1: It taked", timeUsed, "seconds to solve this board.")
+                print(timeUsed, "seconds used.")
                 return Action(AI.Action.LEAVE)
             analyzeBoard()
+            #print("uncover", self.__toUncover)
             if self.__numOfMinesLeft == 0:
                 for i in range(self.__rowDimension):
                     for j in range(self.__colDimension):
@@ -308,15 +431,15 @@ class MyAI( AI ):
                             self.__toUncover.append((i, j))
                 if len(self.__toUncover) == 0:
                     timeUsed = time.time() - self.__time
-                    print("Result 2: It taked", timeUsed, "seconds to solve this board.")
+                    print( timeUsed, "seconds used.")
                     return Action(AI.Action.LEAVE)
         nextTile = self.__toUncover.pop(0)
         #self.printBoardInfo()
         #print()
-        print("next move:", nextTile)
+        #print("next move:", nextTile)
         self.__X, self.__Y = nextTile[0], nextTile[1]
         #print("It has taken", time.time() - self.__time, "seconds until now.")
-        return Action(AI.Action.UNCOVER, nextTile[0], nextTile[1])
+        return Action(AI.Action.UNCOVER, nextTile[1], nextTile[0])
 
 
         
