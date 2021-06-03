@@ -272,19 +272,22 @@ class MyAI( AI ):
         def getValidCombsAfterConnection(allValidCombs, FC):
             # allValidCombs: [[comb1, comb2, comb3], [comb4, comb5], ...]
             # FC: [[ct1, ct2, ct3, ct4, ct5], [ct6, ct7, ...], ...]
-            def connect(connectedCombs, combsToConnect, connectedFC, frontierToConnect):
+            def connect(connectedCombs, combsToConnect, connectedFC, frontierToConnect, uncoveredBoarder):
                 #print("connectedCombs", connectedCombs)
                 #print("connectedFC", connectedFC)
                 #print("combsToConnect", combsToConnect)
                 #print("frontierToConnect", frontierToConnect)
-                uncoveredBoarder = set()
+                searchDict = dict()
+                for i in range(len(connectedFC)):
+                    searchDict[connectedFC[i]] = i
+                for i in range(len(frontierToConnect)):
+                    searchDict[frontierToConnect[i]] = i
+
                 # coveredBoarder = set()
                 outputCombs = []
                 outputFrontier = connectedFC + frontierToConnect
                 #print("boarderDict", boarderDict)
-                for k, v in boarderDict.items():
-                    if v.issubset(set(connectedFC).union(set(frontierToConnect))):
-                        uncoveredBoarder.add(k)
+                
                         # coveredBoarder = coveredBoarder.union(v)
                 
                 #print("uncoveredBoarder", uncoveredBoarder)
@@ -294,6 +297,8 @@ class MyAI( AI ):
                     for comb2 in combsToConnect:
                         success = True
                         for boarderU in uncoveredBoarder:
+                            if not boarderDict[boarderU].issubset(set(connectedFC).union(frontierToConnect)):
+                                continue
                             effectiveLabel = self.__board[boarderU[0]][boarderU[1]][1]
                             #print("effctive label:", effectiveLabel)
                             countOfMines = 0
@@ -301,11 +306,11 @@ class MyAI( AI ):
                             for boarderC in boarderDict[boarderU]:
                                 #print("boarderC", boarderC)
                                 if boarderC in connectedFC:
-                                    i = connectedFC.index(boarderC)
+                                    i = searchDict[boarderC]
                                     if comb1[i] == "1":
                                         countOfMines += 1
-                                else:
-                                    i = frontierToConnect.index(boarderC)
+                                elif boarderC in frontierToConnect:
+                                    i = searchDict[boarderC]
                                     if comb2[i] == "1":
                                         countOfMines += 1
                             #print("effctive label:", effectiveLabel)
@@ -317,16 +322,44 @@ class MyAI( AI ):
                             outputCombs.append(comb1 + comb2)
                 #print("Found", successfulCombs, "valid combos")
                 #print()
-                for k in uncoveredBoarder:
-                    del boarderDict[k]
+                # for k in uncoveredBoarder:
+                #     del boarderDict[k]
                 return outputCombs, outputFrontier
 
-            allConnectedCombs = allValidCombs.pop(0)
-            allConnectedFC = FC.pop(0)
-            while len(allValidCombs) != 0:
-                nextComb = allValidCombs.pop(0)
-                nextFrontier = FC.pop(0)
-                allConnectedCombs, allConnectedFC = connect(allConnectedCombs, nextComb, allConnectedFC, nextFrontier)
+            allConnectedCombs = []
+            allConnectedFC = []
+
+            #print("FC", FC)
+            headerComb = allValidCombs.pop(0)
+            headerFrontier = FC.pop(0)
+            while len(FC) != 0:
+                #print("headerComb:", headerComb)
+                #print("hearderFrontier:", headerFrontier)
+                idx = -1
+                for i in range(len(FC)):
+                    newFrontier = FC[i]
+                    newComb = allValidCombs[i]
+                    ub = set()
+                    for k, v in boarderDict.items():
+                        if v.intersection(set(headerFrontier)) != set() and v.intersection(set(newFrontier)) != set():
+                            ub.add(k)
+                    if len(ub) != 0:
+                        #print("newComb:", newComb)
+                        #print("newFrontier:", newFrontier)
+                        #print("ub:", ub)
+                        headerComb, headerFrontier = connect(headerComb, newComb, headerFrontier, newFrontier, ub)
+                        idx = i
+                        break
+                if idx != -1:
+                    allValidCombs.pop(idx)
+                    FC.pop(idx)
+                else:
+                    allConnectedCombs.append(headerComb)
+                    allConnectedFC.append(headerFrontier)
+                    headerComb = allValidCombs.pop(0)
+                    headerFrontier = FC.pop(0)
+            allConnectedCombs.append(headerComb)
+            allConnectedFC.append(headerFrontier)
 
             return allConnectedCombs, allConnectedFC
 
@@ -376,7 +409,7 @@ class MyAI( AI ):
             finalReport = []
             allValidCombs = []
             boarderDict = dict()
-            connectedFU = connectFrontier(FU)
+            preConnectedFU = connectFrontier(FU)
             preConnectedFC = connectFrontier(FC)
             #print("FC", FC)
             #print("FU", FU)            
@@ -399,7 +432,7 @@ class MyAI( AI ):
 
             allValidCombsAfterConnection, connectedFC = getValidCombsAfterConnection(allValidCombs, FC)
             #print("all valid combinations:", allValidCombsAfterConnection)
-            finalReport = generateReport(allValidCombsAfterConnection, connectedFC)
+            finalReport = [generateReport(allValidCombsAfterConnection[i], connectedFC[i]) for i in range(len(connectedFC))]
             return finalReport, connectedFC
 
     def handleReport(self, report, FC) -> None:
@@ -413,24 +446,30 @@ class MyAI( AI ):
         safeIdx = []
         minProb = 1
         minProbIdx = None
+        maxNumOfUnknownNeighbors = 0
         for i in range(len(report)):
-            prob = report[i]
-            if prob == 1.0:
-                mineIdx.append(i)
-            elif prob == 0.0:
-                safeIdx.append(i)
-            else:
-                if prob < minProb:
-                    minProb = prob
-                    minProbIdx = i
+            for j in range(len(report[i])):
+                prob = report[i][j]
+                if prob == 1.0:
+                    mineIdx.append((i, j))
+                elif prob == 0.0:
+                    safeIdx.append((i, j))
+                else:
+                    if prob < minProb:
+                        minProb = prob
+                        minProbIdx = (i, j)
+                    elif prob == minProb:
+                        numOfNeighbors = len({nb for nb in self.getValidNeighbors(i, j) if self.__board[nb[0]][nb[1]][0] == "*"})
+                        if numOfNeighbors > maxNumOfUnknownNeighbors:
+                            minProbIdx = (i, j)
         if len(mineIdx) == 0 and len(safeIdx) == 0:
             safeIdx.append(minProbIdx)
         #print("mineIdx", mineIdx)
         #print("safeIdx", safeIdx)
         for idx in mineIdx:
-            self.updateBoard(FC[idx][0], FC[idx][1], "M")
+            self.updateBoard(FC[idx[0]][idx[1]][0], FC[idx[0]][idx[1]][1], "M")
         for idx in safeIdx:
-            self.__toUncover.append(FC[idx])
+            self.__toUncover.append(FC[idx[0]][idx[1]])
 
     def printBoardInfo(self) -> None:
         print(self.__numOfMinesLeft, "mines left")
@@ -472,6 +511,12 @@ class MyAI( AI ):
             #print("report:", report)
             self.handleReport(report, connectedFC)
 
+        def uncoverAll():
+            for i in range(self.__rowDimension):
+                for j in range(self.__colDimension):
+                    if self.__board[i][j][0] == "*" and (i, j) not in self.__toUncover:
+                        self.__toUncover.append((i, j))
+
         self.updateBoard(self.__X, self.__Y, number) # After getting the face number back, we update the board (knowledge base) with this new knowledge
         while len(self.__toUncover) == 0:
             #self.printBoardInfo()
@@ -488,10 +533,7 @@ class MyAI( AI ):
             
             #print("uncover", self.__toUncover)
             if self.__numOfMinesLeft == 0:
-                for i in range(self.__rowDimension):
-                    for j in range(self.__colDimension):
-                        if self.__board[i][j][0] == "*" and (i, j) not in self.__toUncover:
-                            self.__toUncover.append((i, j))
+                uncoverAll()
                 if len(self.__toUncover) == 0:
                     timeUsed = time.time() - self.__time
                     if timeUsed > 10:
@@ -504,11 +546,3 @@ class MyAI( AI ):
         self.__X, self.__Y = nextTile[0], nextTile[1]
         #print("It has taken", time.time() - self.__time, "seconds until now.")
         return Action(AI.Action.UNCOVER, nextTile[1], nextTile[0])
-
-
-        
-
-
-        
-        
-            
